@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Markdown UI Toolkit Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Markdown UI Toolkit Editor</h1>
+        </div>
+        
+        <div class="editor-container">
+            <div class="editor-panel">
+                <h3>Markdown Input</h3>
+                <textarea id="markdown-input" placeholder="Enter your markdown here..."></textarea>
+            </div>
+            
+            <div class="preview-panel">
+                <div class="preview-header">
+                    <h3>Live Preview</h3>
+                    <button id="view-toggle" class="toggle-btn" title="Toggle between rendered and raw HTML view">
+                        <span id="toggle-text">Show HTML</span>
+                    </button>
+                </div>
+                <div id="html-output"></div>
+                <div id="raw-html-output" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
