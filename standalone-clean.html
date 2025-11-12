@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Standalone Markdown UI Toolkit Editor</title>
+    <link rel="stylesheet" href="static/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Standalone Markdown UI Toolkit Editor</h1>
+        </div>
+        
+        <div id="loading" class="loading" style="text-align: center; padding: 40px; color: #666; font-size: 1.2rem;">
+            <div id="status">Loading Pyodide...</div>
+            <div id="progress"></div>
+        </div>
+        
+        <div id="editor-app" class="editor-container" style="display: none;">
+            <div class="editor-panel">
+                <h3>Markdown Input</h3>
+                <textarea id="markdown-input" placeholder="Enter your markdown here..."></textarea>
+            </div>
+            
+            <div class="preview-panel">
+                <div class="preview-header">
+                    <h3>Live Preview</h3>
+                    <button id="view-toggle" class="toggle-btn" title="Toggle between rendered and raw HTML view">
+                        <span id="toggle-text">Show HTML</span>
+                    </button>
+                </div>
+                <div id="html-output"></div>
+                <div id="raw-html-output" style="display: none;"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+    
+    <script>
+        let pyodide;
+        let editor;
+
+        async function initializePyodide() {
+            const statusDiv = document.getElementById('status');
+            const progressDiv = document.getElementById('progress');
+            
+            try {
+                statusDiv.textContent = 'Loading Pyodide runtime...';
+                pyodide = await loadPyodide();
+                
+                statusDiv.textContent = 'Installing packages...';
+                await pyodide.loadPackage(['micropip']);
+                const micropip = pyodide.pyimport('micropip');
+                
+                progressDiv.textContent = 'Installing markdown...';
+                await micropip.install(['markdown']);
+                
+                progressDiv.textContent = 'Installing pymdown-extensions...';
+                await micropip.install(['pymdown-extensions']);
+                
+                progressDiv.textContent = 'Setting up markdown processor...';
+                
+                // Setup with pymdown-extensions - matching Flask app.py configuration
+                pyodide.runPython(`
+import markdown
+
+md = markdown.Markdown(extensions=[
+    'pymdownx.superfences',
+    'pymdownx.highlight',
+    'pymdownx.inlinehilite',
+    'pymdownx.keys',
+    'pymdownx.magiclink',
+    'pymdownx.betterem',
+    'pymdownx.caret',
+    'pymdownx.mark',
+    'pymdownx.tilde',
+    'pymdownx.smartsymbols',
+    'pymdownx.emoji',
+    'pymdownx.tasklist',
+    'pymdownx.arithmatex',
+    'pymdownx.critic',
+    'pymdownx.details',
+    'pymdownx.tabbed',
+    'admonition',
+    'codehilite',
+    'tables',
+    'toc'
+], extension_configs={
+    'pymdownx.highlight': {
+        'css_class': 'highlight',
+        'linenums_style': 'table',
+        'linenums': True
+    },
+    'pymdownx.superfences': {
+        'custom_fences': [
+            {
+                'name': 'mermaid',
+                'class': 'mermaid',
+                'format': lambda source, language, class_name, options, md, **kwargs: f'<div class="mermaid">{source}</div>'
+            }
+        ]
+    },
+    'pymdownx.tasklist': {
+        'custom_checkbox': True
+    }
+})
+
+def convert_markdown(text):
+    html = md.convert(text)
+    md.reset()
+    return html
+`);
+
+                statusDiv.textContent = 'Ready!';
+                progressDiv.textContent = '';
+
+                // Hide loading, show editor
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('editor-app').style.display = 'grid';
+
+                // Initialize the editor using the existing MarkdownEditor class
+                // We'll modify it to use Pyodide instead of fetch
+                editor = new PyodideMarkdownEditor();
+
+            } catch (error) {
+                statusDiv.textContent = 'Error: ' + error.message;
+                progressDiv.innerHTML = '<pre style="color: red; font-size: 12px;">' + error.stack + '</pre>';
+                console.error('Failed to initialize:', error);
+            }
+        }
+
+        // Modified version of the existing MarkdownEditor class to use Pyodide
+        class PyodideMarkdownEditor {
+            constructor() {
+                this.markdownInput = document.getElementById('markdown-input');
+                this.htmlOutput = document.getElementById('html-output');
+                this.rawHtmlOutput = document.getElementById('raw-html-output');
+                this.viewToggle = document.getElementById('view-toggle');
+                this.toggleText = document.getElementById('toggle-text');
+                this.debounceTimer = null;
+                this.showingRawHtml = false;
+                this.currentHtml = '';
+                
+                this.init();
+            }
+            
+            init() {
+                // Initialize mermaid
+                mermaid.initialize({ 
+                    startOnLoad: true,
+                    theme: 'default',
+                    securityLevel: 'loose'
+                });
+                
+                // Add event listeners
+                this.markdownInput.addEventListener('input', () => {
+                    this.debounceConvert();
+                });
+                
+                this.viewToggle.addEventListener('click', () => {
+                    this.toggleView();
+                });
+                
+                // Load sample content
+                this.loadSampleContent();
+                
+                // Initial conversion
+                this.convertMarkdown();
+            }
+            
+            debounceConvert() {
+                clearTimeout(this.debounceTimer);
+                this.debounceTimer = setTimeout(() => {
+                    this.convertMarkdown();
+                }, 300);
+            }
+            
+            // Modified to use Pyodide instead of fetch
+            async convertMarkdown() {
+                const markdownText = this.markdownInput.value;
+                
+                try {
+                    // Convert using Pyodide instead of Flask endpoint
+                    pyodide.globals.set('markdown_text', markdownText);
+                    const html = pyodide.runPython('convert_markdown(markdown_text)');
+                    this.currentHtml = html;
+                    
+                    // Update the current view
+                    this.updateView();
+                    
+                    if (!this.showingRawHtml) {
+                        // Re-initialize highlight.js for new code blocks
+                        this.htmlOutput.querySelectorAll('pre code').forEach((block) => {
+                            hljs.highlightElement(block);
+                        });
+                        
+                        // Re-initialize mermaid for new diagrams
+                        const mermaidElements = this.htmlOutput.querySelectorAll('.mermaid');
+                        if (mermaidElements.length > 0) {
+                            // Clear any existing data-processed attributes
+                            mermaidElements.forEach(element => {
+                                element.removeAttribute('data-processed');
+                            });
+                            
+                            // Re-run mermaid initialization
+                            mermaid.init(undefined, mermaidElements);
+                        }
+                        
+                        // Enhance code block titles
+                        this.enhanceCodeBlockTitles();
+                    }
+                    
+                } catch (error) {
+                    console.error('Error converting markdown:', error);
+                    this.htmlOutput.innerHTML = '<p style="color: red;">Error converting markdown</p>';
+                }
+            }
+            
+            toggleView() {
+                this.showingRawHtml = !this.showingRawHtml;
+                this.updateView();
+                
+                // Update button text
+                this.toggleText.textContent = this.showingRawHtml ? 'Show Preview' : 'Show HTML';
+            }
+            
+            updateView() {
+                if (this.showingRawHtml) {
+                    // Show raw HTML
+                    this.htmlOutput.style.display = 'none';
+                    this.rawHtmlOutput.style.display = 'block';
+                    this.rawHtmlOutput.textContent = this.currentHtml;
+                } else {
+                    // Show rendered HTML
+                    this.htmlOutput.style.display = 'block';
+                    this.rawHtmlOutput.style.display = 'none';
+                    this.htmlOutput.innerHTML = this.currentHtml;
+                }
+            }
+            
+            enhanceCodeBlockTitles() {
+                // Find all code block titles and enhance them
+                const filenameElements = this.htmlOutput.querySelectorAll('.highlighttable .filename .filename');
+                
+                filenameElements.forEach(element => {
+                    // Skip if already enhanced
+                    if (element.querySelector('.copy-btn')) return;
+                    
+                    // Find the associated code block for copy functionality
+                    const codeBlock = element.closest('.highlight');
+                    
+                    // Store original text content
+                    const originalText = element.textContent;
+                    
+                    // Clear the element and restructure
+                    element.innerHTML = '';
+                    
+                    // Create text span (left side)
+                    const textSpan = document.createElement('span');
+                    textSpan.textContent = originalText;
+                    
+                    // Create copy button (right side)
+                    const copyBtn = document.createElement('button');
+                    copyBtn.className = 'copy-btn';
+                    copyBtn.textContent = 'Copy';
+                    copyBtn.title = 'Copy code to clipboard';
+                    
+                    // Add click handler for copy functionality
+                    copyBtn.addEventListener('click', () => {
+                        const codeContent = codeBlock.querySelector('.code pre code');
+                        if (codeContent) {
+                            const text = codeContent.textContent;
+                            navigator.clipboard.writeText(text).then(() => {
+                                copyBtn.textContent = 'Copied!';
+                                setTimeout(() => {
+                                    copyBtn.textContent = 'Copy';
+                                }, 2000);
+                            }).catch(err => {
+                                console.error('Failed to copy code:', err);
+                            });
+                        }
+                    });
+                    
+                    // Assemble the simple structure: text on left, button on right
+                    element.appendChild(textSpan);
+                    element.appendChild(copyBtn);
+                });
+            }
+            
+            loadSampleContent() {
+                const sampleMarkdown = `# Standalone Markdown UI Toolkit Editor
+
+Welcome to the **Standalone Markdown UI Toolkit Editor**! This editor runs entirely in your browser using *Pyodide* with full *pymdown-extensions* support.
+
+## Features
+
+### Basic Markdown
+- **Bold text**
+- *Italic text*
+- ~~Strikethrough~~
+- ==Highlight==
+- H~2~O (subscript)
+- X^2^ (superscript)
+
+### Code Highlighting
+` + "```python\n" +
+`def hello_world():
+    print("Hello, World!")
+    return "success"
+` + "```\n\n" +
+
+`### Code with Line Numbers
+` + "```python linenums=\"1\"\n" +
+`def calculate_fibonacci(n):
+    if n <= 1:
+        return n
+    return calculate_fibonacci(n-1) + calculate_fibonacci(n-2)
+
+# Example usage
+result = calculate_fibonacci(10)
+print("Fibonacci(10) =", result)
+` + "```\n\n" +
+
+`### Code with Title
+` + "```python title=\"fibonacci.py\" linenums=\"1\"\n" +
+`def calculate_fibonacci(n):
+    if n <= 1:
+        return n
+    return calculate_fibonacci(n-1) + calculate_fibonacci(n-2)
+
+def main():
+    result = calculate_fibonacci(10)
+    print("Fibonacci(10) =", result)
+
+if __name__ == "__main__":
+    main()
+` + "```\n\n" +
+
+`### Task Lists
+- [x] Completed task
+- [ ] Pending task
+- [ ] Another pending task
+
+### Tables
+| Feature | Status | Priority |
+|---------|--------|----------|
+| Editor | ✅ Done | High |
+| Preview | ✅ Done | High |
+| Standalone | ✅ Done | High |
+
+### Keyboard Shortcuts
+Press ++ctrl+c++ to copy and ++ctrl+v++ to paste.
+
+### Critic Markup
+{++This text has been added++}
+{--This text has been deleted--}
+{~~This~>That~~} (substitution)
+{==This text is highlighted==}
+{>>This is a comment<<}
+
+### Details/Summary
+??? note "Click to expand"
+    This is hidden content that can be expanded.
+
+### Tabbed Content
+=== "Tab 1"
+    Content for tab 1
+
+=== "Tab 2"
+    Content for tab 2
+
+### Mermaid Diagrams
+` + "```mermaid\n" +
+`graph TD
+    A[Start] --> B{Decision}
+    B -->|Yes| C[Action 1]
+    B -->|No| D[Action 2]
+    C --> E[End]
+    D --> E
+` + "```\n\n" +
+
+`### Admonitions
+!!! note "Important Note"
+    This is a note admonition. Use it for general information.
+
+!!! warning "Warning"
+    This is a warning admonition. Use it for potential issues.
+
+!!! danger "Danger"
+    This is a danger admonition. Use it for critical warnings.
+
+!!! success "Success"
+    This is a success admonition. Use it for positive outcomes.
+
+!!! info "Information"
+    This is an info admonition. Use it for additional details.
+
+!!! tip "Pro Tip"
+    This is a tip admonition. Use it for helpful suggestions.
+
+This editor runs completely in your browser with no server required!`;
+                
+                this.markdownInput.value = sampleMarkdown;
+            }
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initializePyodide);
+    </script>
+</body>
+</html>
