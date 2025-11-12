@@ -4,10 +4,10 @@ A live markdown editor with advanced features powered by pymdown-extensions.
 
 ## Demo
 
-<video width="100%" controls>
-  <source src="docs/live_editor.mp4" type="video/mp4">
-  Your browser does not support the video tag.
-</video>
+
+https://github.com/user-attachments/assets/3b3cf2dd-7ffa-4812-a21b-6279473285c3
+
+
 
 ## Live Demo
 
