@@ -4,12 +4,16 @@ A live markdown editor with advanced features powered by pymdown-extensions.
 
 ## Demo
 
-![Demo Video](docs/live_editor.mp4)
+<video width="100%" controls>
+  <source src="docs/live_editor.mp4" type="video/mp4">
+  Your browser does not support the video tag.
+</video>
 
 ## Live Demo
 
-Try the standalone version: [here](https://viperx7.github.io/pymdown-live-edit/standalone-clean.html)
-some features are missing in the above one [see issues](#Known Issues)
+Try the standalone version: <a href="https://viperx7.github.io/pymdown-live-edit/standalone-clean.html" target="_blank">here</a>
+
+Some features are missing in the above one - [see issues](#known-issues)
 
 ## Quick Start
 
